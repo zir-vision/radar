@@ -12,9 +12,9 @@ out_size = (1920, 1080)
 writer = cv2.VideoWriter("perspect.avi", cv2.VideoWriter_fourcc(*"MJPG"), cap.get(cv2.CAP_PROP_FPS), out_size)
 SCALE = 200
 
-persp: perspect.VideoPerspective | None = None
+persp: perspect.VideoPerspectiveLazy = perspect.VideoPerspectiveLazy()
 
-for frame in iter_video("sac-low-fps.mp4"):
+for frame in iter_video("sac-low-fps.mp4", 300, 350):
     
     
     frame = cv2.resize(frame, (640, 640))
@@ -29,10 +29,7 @@ for frame in iter_video("sac-low-fps.mp4"):
     print(f"{kps.xy.shape=}")
     print(f"{kps.confidence.shape=}")
 
-    if persp is None:
-        persp = perspect.VideoPerspective(biggest_det, kp_threshold=0.8, padding=[0, 200, 200, 200], scale=SCALE)
-    else:
-        persp.update(biggest_det)
+    persp.update(biggest_det)
 
     warped = persp.warp_image(frame, True)
     cv2.imwrite("warped.jpg", warped)

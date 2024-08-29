@@ -124,19 +124,15 @@ def iter_video(video_path, start_frame: int = 0, end_frame: int | None = None):
         if not ret:
             break
         if i < start_frame:
+            # print(f"Skipping frame {i}")
+            i += 1
             continue
         if end_frame is not None and i > end_frame:
+            # print(f"Reached end frame {end_frame}")
             break
         yield frame
         i += 1
     cap.release()
-
-
-def pad_vertices(vertices, modify):
-    """
-    Pads the vertices with a 0.2 margin on all sides.
-    """
-    return [(modify(x), modify(y)) for x, y in vertices]
 
 if __name__ == "__main__":
     import sys

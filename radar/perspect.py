@@ -86,3 +86,23 @@ class VideoPerspective(Perspective):
             prev_matrices.pop(0)
         self.matrix = np.mean(prev_matrices, axis=0)
         
+class VideoPerspectiveLazy(VideoPerspective):
+    """
+    Wrapper for VideoPerspective so that you don't have to wait until you have an image to initialize it.
+    Will just crash if you try to warp an image before updating the perspective.
+    """
+    def __init__(self, kp_threshold: float = 0.8, padding: tuple[int, int, int, int] = [0, 200, 200, 200], scale: int = 200):
+        self.kp_threshold = kp_threshold
+        self.padding = padding
+        self.scale = scale
+        self.kps = None
+        self.matrix = None
+        self.prev_matrices = []
+    
+    def update(self, kps: Detection):
+        self.kps = kps
+        matrix = self.find_homography(kps, self.kp_threshold, self.padding, self.scale)
+        self.prev_matrices.append(matrix)
+        if len(self.prev_matrices) > 25:
+            self.prev_matrices.pop(0)
+        self.matrix = np.mean(self.prev_matrices, axis=0)
