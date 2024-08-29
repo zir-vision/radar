@@ -112,6 +112,26 @@ def draw_matches(image, kps: list[KP], scale=200):
 
     return matched
 
+
+def iter_video(video_path, start_frame: int = 0, end_frame: int | None = None):
+    """
+    Iterates over the frames of a video.
+    """
+    cap = cv2.VideoCapture(video_path)
+    i = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if i < start_frame:
+            continue
+        if end_frame is not None and i > end_frame:
+            break
+        yield frame
+        i += 1
+    cap.release()
+
+
 def pad_vertices(vertices, modify):
     """
     Pads the vertices with a 0.2 margin on all sides.
