@@ -1,39 +1,53 @@
 import cv2
 import crescendo
-import supervision
+from dataclasses import dataclass
 import numpy as np
 from utils import Detection, plot_field, KP
 
+@dataclass
+class PerspectiveConfig:
+    kp_threshold: float = 0.8
+    padding: tuple[int, int, int, int] = [0, 200, 200, 200]
+    scale: int = 200
+
 class Perspective:
     @staticmethod
-    def find_homography(kps: Detection, kp_threshold: float = 0.8, padding: tuple[int, int, int, int] = [0, 200, 200, 200], scale: int = 200):
+    def find_homography(kps: Detection, config: PerspectiveConfig):
         points = []
         mask = []
         for kp in kps.keypoints:
-            if kp.confidence > kp_threshold:
+            if kp.confidence > config.kp_threshold:
                 mask.append(True)
                 points.append((kp.x, kp.y))
             else:
                 mask.append(False)
         source = np.array(points, dtype=np.float32)
         print(f"{source=}")
-        target = np.array(crescendo.VERTICES, dtype=np.float32)[mask] * scale
+        target = np.array(crescendo.VERTICES, dtype=np.float32)[mask] * config.scale
         # Apply padding
-        target[:, 0] += padding[3]
-        target[:, 1] += padding[0]
+        target[:, 0] += config.padding[3]
+        target[:, 1] += config.padding[0]
         print(f"{target=}")
         matrix, _ = cv2.findHomography(source, target)
         return matrix
-    def __init__(self, kps: Detection, kp_threshold: float = 0.8, padding: tuple[int, int, int, int] = [0, 200, 200, 200], scale: int = 200):
+    
+    config: PerspectiveConfig
+
+    def __init__(self, config: PerspectiveConfig):
         """
         Finds the homography matrix to transform points from the source to the destination.
         Padding is the the shape of [top, right, bottom, left].
         """
+        self.kps = None
+        self.config = config
+        
+
+    def update(self, kps: Detection):
+        """
+        Updates the homography matrix with new keypoints.
+        """
         self.kps = kps
-        self.kp_threshold = kp_threshold
-        self.padding = padding
-        self.scale = scale
-        self.matrix = self.find_homography(kps, kp_threshold, padding, scale)
+        self.matrix = self.find_homography(kps, self.config)
 
     def warp_points(self, points: list[tuple[float, float]]) -> list[tuple[float, float]]:
         """
@@ -86,23 +100,3 @@ class VideoPerspective(Perspective):
             prev_matrices.pop(0)
         self.matrix = np.mean(prev_matrices, axis=0)
         
-class VideoPerspectiveLazy(VideoPerspective):
-    """
-    Wrapper for VideoPerspective so that you don't have to wait until you have an image to initialize it.
-    Will just crash if you try to warp an image before updating the perspective.
-    """
-    def __init__(self, kp_threshold: float = 0.8, padding: tuple[int, int, int, int] = [0, 200, 200, 200], scale: int = 200):
-        self.kp_threshold = kp_threshold
-        self.padding = padding
-        self.scale = scale
-        self.kps = None
-        self.matrix = None
-        self.prev_matrices = []
-    
-    def update(self, kps: Detection):
-        self.kps = kps
-        matrix = self.find_homography(kps, self.kp_threshold, self.padding, self.scale)
-        self.prev_matrices.append(matrix)
-        if len(self.prev_matrices) > 25:
-            self.prev_matrices.pop(0)
-        self.matrix = np.mean(self.prev_matrices, axis=0)
