@@ -1,14 +1,16 @@
 import cv2
 import crescendo
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 from utils import Detection, plot_field, KP
+
 
 @dataclass
 class PerspectiveConfig:
     kp_threshold: float = 0.8
-    padding: tuple[int, int, int, int] = [0, 200, 200, 200]
+    padding: tuple[int, int, int, int] = (0, 0, 0, 0)
     scale: int = 200
+
 
 class Perspective:
     @staticmethod
@@ -21,6 +23,8 @@ class Perspective:
                 points.append((kp.x, kp.y))
             else:
                 mask.append(False)
+        if len(points) < 4:
+            raise ValueError("Not enough keypoints to find homography matrix.")
         source = np.array(points, dtype=np.float32)
         print(f"{source=}")
         target = np.array(crescendo.VERTICES, dtype=np.float32)[mask] * config.scale
@@ -30,7 +34,7 @@ class Perspective:
         print(f"{target=}")
         matrix, _ = cv2.findHomography(source, target)
         return matrix
-    
+
     config: PerspectiveConfig
 
     def __init__(self, config: PerspectiveConfig):
@@ -40,7 +44,6 @@ class Perspective:
         """
         self.kps = None
         self.config = config
-        
 
     def update(self, kps: Detection):
         """
@@ -49,7 +52,9 @@ class Perspective:
         self.kps = kps
         self.matrix = self.find_homography(kps, self.config)
 
-    def warp_points(self, points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    def warp_points(
+        self, points: list[tuple[float, float]]
+    ) -> list[tuple[float, float]]:
         """
         Warps a list of points using the homography matrix.
         """
@@ -61,10 +66,15 @@ class Perspective:
         """
         Warps an image using a homography matrix.
         """
-        
 
-
-        warped = cv2.warpPerspective(image, self.matrix, (int(crescendo.FIELD_WIDTH*self.scale+(self.padding[1]*2)), int(crescendo.FIELD_HEIGHT*self.scale+(self.padding[2]*2))))
+        warped = cv2.warpPerspective(
+            image,
+            self.matrix,
+            (
+                int(crescendo.FIELD_WIDTH * self.config.scale + (self.config.padding[1] * 2)),
+                int(crescendo.FIELD_HEIGHT * self.config.scale + (self.config.padding[2] * 2)),
+            ),
+        )
         if annotate:
             # Warp the keypoints
             kps = self.kps.keypoints
@@ -75,14 +85,14 @@ class Perspective:
                 warped_kps.append(KP(int(x), int(y), kp.confidence))
             warped = plot_field(warped, warped_kps)
         return warped
-    
+
 
 class VideoPerspective(Perspective):
     """
     A smoothened perspective transformation for videos.
     Uses a simple rolling average to smoothen the transformation.
     """
-    
+
     def update(self, kps: Detection):
         """
         Updates the homography matrix with new keypoints.
@@ -93,10 +103,9 @@ class VideoPerspective(Perspective):
         except AttributeError:
             prev_matrices = []
             self.prev_matrices = prev_matrices
-
-        matrix = self.find_homography(kps, self.kp_threshold, self.padding, self.scale)
+        print(f"{kps=}")
+        matrix = self.find_homography(kps, self.config)
         prev_matrices.append(matrix)
         if len(prev_matrices) > 25:
             prev_matrices.pop(0)
         self.matrix = np.mean(prev_matrices, axis=0)
-        

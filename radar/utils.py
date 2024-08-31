@@ -1,6 +1,6 @@
 import cv2
 import crescendo
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ultralytics.engine.results import Results
 
 
@@ -11,13 +11,20 @@ class KP:
     confidence: float
 
 @dataclass
-class Detection:
-    class_index: int
+class Box:
     x1: float
     y1: float
     x2: float
     y2: float
-    keypoints: list[KP]
+
+    def area(self):
+        return (self.x2 - self.x1) * (self.y2 - self.y1)
+@dataclass
+class Detection:
+    class_index: int
+    box: Box
+    confidence: float
+    keypoints: list[KP] | None = field(default_factory=lambda: None)
 
 
 def plot_field(image, keypoints: list[KP]):
@@ -82,10 +89,18 @@ def kps_ultralytics_to_detection(results: Results) -> list[Detection]:
             keypoints.append(KP(kp[0], kp[1], kp[2]))
         box = results.boxes.xyxy[i]
         clazz = results.boxes.cls[i]
-        detections.append(Detection(clazz, box[0], box[1], box[2], box[3], keypoints))
+        confidence = results.boxes.conf[i]
+        detections.append(Detection(clazz, Box(box[0], box[1], box[2], box[3]), confidence, keypoints))
     return detections
 
-
+def det_ultralytics_to_detection(results: Results) -> list[Detection]:
+    detections = []
+    for i in range(len(results.boxes)):
+        box = results.boxes.xyxy[i]
+        clazz = results.boxes.cls[i]
+        confidence = float(results.boxes.conf[i])
+        detections.append(Detection(clazz, Box(float(box[0]), float(box[1]), float(box[2]), float(box[3])), confidence, None))
+    return detections
 
 def draw_matches(image, kps: list[KP], scale=200):
     print(f"{image.shape=}")

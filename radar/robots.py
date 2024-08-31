@@ -12,13 +12,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 from sklearn.preprocessing import normalize
-import math
+from utils import det_ultralytics_to_detection, Detection
 class RobotDetector:
     def __init__(self, model_path: str):
         self.model = YOLO(model_path)
         self.det_size = (640, 640)
 
-    def detect(self, img):
+    def detect(self, img) -> list[Detection]:
         original_size = img.shape[:2]
         resize_ratio = (
             original_size[1] / self.det_size[0],
@@ -27,11 +27,16 @@ class RobotDetector:
         det_img = cv2.resize(img, self.det_size)
         results: Results = self.model.predict(det_img, conf=0.5)[0]
 
-        dets = sv.Detections.from_ultralytics(results)
+        dets = det_ultralytics_to_detection(results)
         # Adjust the detections to the original image size
-        dets.xyxy = dets.xyxy * np.array(
-            [resize_ratio[0], resize_ratio[1], resize_ratio[0], resize_ratio[1]]
-        )
+        # dets.xyxy = dets.xyxy * np.array(
+        #     [resize_ratio[0], resize_ratio[1], resize_ratio[0], resize_ratio[1]]
+        # )
+        for det in dets:
+            det.box.x1 *= resize_ratio[0]
+            det.box.x2 *= resize_ratio[0]
+            det.box.y1 *= resize_ratio[1]
+            det.box.y2 *= resize_ratio[1]
         
         # box_annotator = sv.BoxAnnotator()
         # annotated_image = box_annotator.annotate(img.copy(), dets)
@@ -48,12 +53,14 @@ class RobotRecognizer:
         self.preprocessor = AutoImageProcessor.from_pretrained(model_name)
         self.model = Dinov2Model.from_pretrained(model_name)
 
-    def recognize(self, imgs: Iterable[np.ndarray]):
-        for img in imgs:
-            inputs = self.preprocessor(images=img, return_tensors="pt")
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-            yield outputs.pooler_output.detach().numpy()
+    def recognize(self, imgs: Iterable[np.ndarray]) -> np.ndarray:
+        
+        inputs = self.preprocessor(images=list(imgs), return_tensors="pt")
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        embeddings = outputs.pooler_output.detach().numpy()
+        print(f"{embeddings.shape=}")
+        return embeddings
 
     def recognize_video(self, video: Iterable[Iterable[np.ndarray]]):
         for frame in video:
@@ -65,6 +72,7 @@ class RobotRecognizer:
         robots_on_field: int = 6,
         cluster_dim: int = 2,
         min_robot_cluster_size: int | None = None,
+        debug: bool = False,
     ) -> list[list[tuple[int]]]:
         if min_robot_cluster_size is None:
             min_robot_cluster_size = round((len(embeddings) / robots_on_field) * 0.75)
@@ -83,21 +91,22 @@ class RobotRecognizer:
         embeddings_array = np.array(flattened_embeddings)
         embeddings_array = normalize(embeddings_array)
         u = umap.fit_transform(flattened_embeddings)
-
-        plt.scatter(u[:, 0], u[:, 1]).get_figure().savefig("umap.png")
-        plt.clf()
+        if debug:
+            plt.scatter(u[:, 0], u[:, 1]).get_figure().savefig("umap.png")
+            plt.clf()
         
         robot_clusterer = HDBSCAN_flat(u, n_clusters=robots_on_field, max_cluster_size=len(embeddings)/robots_on_field)
-        print(f"{robot_clusterer.labels_.max()+1} clusters found")
-        robot_color_palette = sns.color_palette('Paired', robot_clusterer.labels_.max() + 1)
-        robot_cluster_colors = [robot_color_palette[x] if x >= 0
-                        else (0.5, 0.5, 0.5)
-                        for x in robot_clusterer.labels_]
-        # robot_cluster_member_colors = [sns.desaturate(x, p) for x, p in
-        #                         zip(robot_cluster_colors, robot_clusterer.probabilities_)]
-        robot_cluster_member_colors = robot_cluster_colors
-        plt.scatter(u[:, 0], u[:, 1], c=robot_cluster_member_colors).get_figure().savefig("robot_clusters.png")
-        plt.clf()
+        if debug:
+            print(f"{robot_clusterer.labels_.max()+1} clusters found")
+            robot_color_palette = sns.color_palette('Paired', robot_clusterer.labels_.max() + 1)
+            robot_cluster_colors = [robot_color_palette[x] if x >= 0
+                            else (0.5, 0.5, 0.5)
+                            for x in robot_clusterer.labels_]
+            # robot_cluster_member_colors = [sns.desaturate(x, p) for x, p in
+            #                         zip(robot_cluster_colors, robot_clusterer.probabilities_)]
+            robot_cluster_member_colors = robot_cluster_colors
+            plt.scatter(u[:, 0], u[:, 1], c=robot_cluster_member_colors).get_figure().savefig("robot_clusters.png")
+            plt.clf()
         dict_frames = [{} for _ in range(len(embeddings))]
 
         for i, label in enumerate(labels):
